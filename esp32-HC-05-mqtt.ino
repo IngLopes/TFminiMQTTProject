@@ -1,4 +1,4 @@
-//Trying to unite bluetooth and wifi at the same time on esp32. BT by using the HC-05 bt module and wifi 
+//Trying to unite bluetooth and wifi at the same time on esp32. BT by using the HC-05 bt module and wifi
 //by using the esp32's own antenna
 
 #include <HardwareSerial.h>
@@ -23,6 +23,12 @@ const int mqtt_port = 8883;
 const char *mqtt_user = "EspOBD";
 const char *mqtt_pass = "espOBD2s";
 const char *mqtt_client_name = "Esp32OBD"; // Client connections cant have the same connection name
+
+//Necessary commands for HC-05 initialization
+//const char p1[] = "AT+INIT\r\n";
+//const char p2[] = "AT+INQ\r\n";
+//const char p3[] = "AT+LINK=A816,D0,4A7DDC\r\n";
+//int nloop=0;
 
 //CA Certificate
 
@@ -74,7 +80,11 @@ void connect_wifi(){
   Serial.print(F("IP esp: "));
   Serial.println(WiFi.localIP()); // Imprimir IP do ESP
 }
-
+void readSerialHC() {
+  if(SerialHC.available()){
+        Serial.println(SerialHC.read());
+      } 
+}
 void reconnectMQTT() {
   //Loop until reconnected
   while (!client.connected()){
@@ -97,32 +107,143 @@ void setup() {
   Serial.println("Enter AT commands:");
   //BTSerial.begin(115200);       // HC-05 has been changed with AT+UART=115200,0,0
   SerialHC.begin(38400, SERIAL_8N1, RX_HC, TX_HC);
+//  SerialHC.write("AT");
+//  Serial.println(SerialHC.read());
   //SerialBT.begin(115200);
   connect_wifi();
   wifiClient.setCACert(root_ca); //for secure connection
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
-  
+
 }
 
 void loop()
 {
   if (!client.connected()) reconnectMQTT();
   client.loop();
+  
   if (SerialHC.available()>0)  {  // read from HC-05 and send to Arduino Serial Monitor
-    //Serial.println("receiving message from bluetooth");
-    uint8_t r= SerialHC.read();
-    Serial.write(r);
-    String rpm=String(r);
-    client.publish("Rpm", rpm.c_str());
-    Serial.println(rpm);    
-    SerialHC.flush();
+  //Serial.println("receiving message from bluetooth");
+    String r= SerialHC.readStringUntil('>');
+    Serial.println(r);
+    r.remove(0,1);
+    int response=r.toInt();  //convert string to integer to be able to see if it is hex, relevant data
+    //if (isHexadecimalDigit(response)){
+      //take the identifier out of the string r. that is the 4 first digits
+    String ident=r;
+    ident=r.substring(0,4);
+    int lg=r.length();
+    Serial.println(ident);
+    if (ident=="410C"){ //rpm reading
+      Serial.println("Rpm reading");
+      String rpmhx = r.substring(4,lg); //takes the data from rpm from the message but in hex
+      Serial.println(rpmhx);
+      int rpmdc= strtol(rpmhx.c_str(), NULL, 16); //converts the rpm to decimal
+      Serial.println(rpmdc);
+      rpmdc=rpmdc/4;
+      String rpm = String(rpmdc); //converting rpm to String
+      Serial.println(rpm); //actual rpm value 
+      client.publish("Rpm", rpm.c_str());     
+    } else{
+      Serial.print("not relevant rpm data from OBD: ");
+      Serial.println(r);
+    }
+    if (ident=="4105"){ //current engine coolant temperature
+      String engTemphx = r.substring(4,lg);
+      Serial.println(engTemphx);
+      int engTempdc= strtol(engTemphx.c_str(), NULL, 16); //converts the temperature to decimal
+      Serial.println(engTempdc);
+      engTempdc=engTempdc- 40; //substracting 40 because of the offset to allow subzero temperatures
+      String engTemp = String (engTempdc);
+      Serial.println(engTemp);
+      client.publish("EngCoolTemp",engTemp.c_str());
+    } else{
+      Serial.print("not relevant engine coolant temperature data from OBD: ");
+      Serial.println(r);
+    }
+    if (ident=="410D"){ //current vehicle speed - no math needed
+      String spdhx = r.substring(4,lg);
+      Serial.println(spdhx);
+      int spddc= strtol(spdhx.c_str(), NULL, 16); //converts the speed to decimal
+      Serial.println(spddc);
+      String spd = String (spddc);
+      client.publish("Speed",spd.c_str());
+    } else{
+      Serial.print("not relevant speed data from OBD: ");
+      Serial.println(r);
+    }
+    if (ident=="4110"){//air flow rate 
+      Serial.println("Air Flow reading");
+      String airFlowhx = r.substring(4,lg); //takes the data from airFlow from the message but in hex
+      Serial.println(airFlowhx);
+      int airFlowrpmdc= strtol(airFlowhx.c_str(), NULL, 16); //converts the airFlow to decimal
+      Serial.println(airFlowdc);
+      airFlowdc=airFlowdc/100;
+      String airFlow = String(airFlowdc); //converting rpm to String
+      Serial.println(airFlow); //actual rpm value 
+      client.publish("airFlow", airFlow.c_str());     
+    } else{
+      Serial.print("not relevant airFlow data from OBD: ");
+      Serial.println(r);
+    }
+    if (ident="410F"){ //Intake air temperature
+      Serial.println("Intake Air Temperature reading");
+      String airTemphx = r.substring(4,lg); //takes the data from airTemp from the message but in hex
+      Serial.println(airTemphx);
+      int airTempdc= strtol(airTemphx.c_str(), NULL, 16); //converts the airTemp to decimal
+      Serial.println(airTempdc);
+      airTempdc=airTempdc-40; //substracting 40 because of the offset to allow subzero temperatures
+      String airTemp = String(airTempdc); //converting airTemp to String
+      Serial.println(airTemp); //actual aieTemp value 
+      client.publish("airTemp", airTemp.c_str());     
+    } else{
+      Serial.print("not relevant airFlow data from OBD: ");
+      Serial.println(r);
+    }
+    if (ident=="4104"){ //Engine Load
+      Serial.println("Engine Load reading");
+      String engLoadhx = r.substring(4,lg); //takes the data from engLoad from the message but in hex
+      Serial.println(engLoadhx);
+      int engLoaddc= strtol(engLoadhx.c_str(), NULL, 16); //converts the engLoad to decimal
+      Serial.println(engLoaddc);
+      engLoaddc=(engLoaddc/255)*100; 
+      String engLoad = String(engLoaddc); //converting airTemp to String
+      Serial.println(engLoad); //actual engLoad value 
+      client.publish("engLoad", engLoad.c_str());     
+    } else{
+      Serial.print("not relevant engLoad data from OBD: ");
+      Serial.println(r);
+    }
+    
+    SerialHC.flush(); //waits for the transmit buffer to be empty / the transmission to be finished
   }
-
+   
   if (Serial.available()) {    // Keep reading from Arduino Serial Monitor and send to HC-05
     //Serial.println("serial available");
+//    if (nloop==0){
+      //Seting up the bluetooth connection:
+//      SerialHC.write("AT+ROLE=1\r\n"); //configure HC-05 as master
+//      Serial.println("AT+ROLE=1");
+//      Serial.println(SerialHC.read());
+//      SerialHC.write("AT+CMODE=0\r\n"); // module can only connect by specific bluetooth address
+//      Serial.println("AT+CMODE=0");
+//      Serial.println(SerialHC.read());
+    //  SerialHC.write("AT+INQM=0,5,9");
+    //  Serial.println(SerialHC.read());
+//      SerialHC.write(p1);
+//      Serial.println("AT+INIT");
+//      readSerialHC();
+//      SerialHC.write(p2);
+//      Serial.println("AT+INQ");
+//      delay(9000);
+//      readSerialHC();  
+//      SerialHC.write(p3); //endereço do J7 Prime2
+//      Serial.println("AT+LINK=A816,D0,4A7DDC\r\n");
+//      readSerialHC();
+//      nloop ++;
+//    }
     char c=Serial.read();
-    Serial.println(c);
+    //Serial.println(c);
     SerialHC.write(c);
   }
 }
@@ -134,6 +255,8 @@ void callback(char* topic, byte* payload, unsigned int length) {
   
   Serial.println("Message arrived ["+String(topic)+"]"+incommingMessage);
   }
+
+
 //  Serial.begin(34800);
 //  Serial2.begin(34800,SERIAL_8N1, RX_HC, TX_HC);
 //  pinMode(Key,OUTPUT);
