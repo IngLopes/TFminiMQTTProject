@@ -1,6 +1,5 @@
 //Code to read the data from the ECU by connecting through the HC-05 module to the ELM327 and
-//then sending it through MQTT Cloud tls to the database
-
+//then sending it through MQTT Cloud tls to the database-
 #include <HardwareSerial.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -23,7 +22,8 @@ const char *mqtt_user = "EspOBD";
 const char *mqtt_pass = "espOBD2s";
 const char *mqtt_client_name = "Esp32OBD"; // Client connections cant have the same connection name
 String DTC;
-int nloop=0;
+int nloop=7;
+String c;
 
 //CA Certificate
 
@@ -84,11 +84,13 @@ void reconnectMQTT() {
     if (client.connect(mqtt_client_name, mqtt_user, mqtt_pass)){
       Serial.println(F("Connected."));
       client.subscribe("Rpm"); //subscribe to topic RPM
-      client.subscribe("EngCoolTemp"); //subscribe to topic Distance
-      client.subscribe("Speed"); //subscribe to topic Distance
-      client.subscribe("airFlow"); //subscribe to topic Distance
-      client.subscribe("nDTC"); //subscribe to topic Distance
-      client.subscribe("DTC"); 
+      client.subscribe("EngCoolTemp"); //subscribe to topic egine coolant temperature
+      client.subscribe("Speed"); //subscribe to topic speed
+      client.subscribe("airTemp"); //subscribe to topic air intake temperature
+      client.subscribe("engLoad"); //subscribe to topic engine load
+      client.subscribe("airFlow"); //subscribe to topic intake air flow
+      client.subscribe("nDTC"); //subscribe to topic number of trouble codes
+      client.subscribe("DTC"); //subscribe to topic trouble codes
     } else {
       Serial.print(F("failed, rc="));
       Serial.print(client.state());
@@ -97,11 +99,13 @@ void reconnectMQTT() {
   }
 }
 
+
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
   Serial.println("Enter AT commands:");
   delay(3000);
+  
   SerialHC.begin(38400, SERIAL_8N1, RX_HC, TX_HC);
   connect_wifi();
   wifiClient.setCACert(root_ca); //for secure connection
@@ -118,6 +122,7 @@ void loop()
   if (SerialHC.available()>0)  {  // read from HC-05 and send to Arduino Serial Monitor
   //Serial.println("receiving message from bluetooth");
     String r= SerialHC.readStringUntil('>');
+    //String r= SerialHC.readString();
     Serial.println(r);
     String ident=r;
     ident=r.substring(0,5);
@@ -218,12 +223,12 @@ void loop()
     }
     if (ident=="41 01"){
       Serial.println("nDTC reading");
-      String nDTChx = r.substring(6,7); //takes the data from engLoad from the message but in hex
+      String nDTChx = r.substring(6,7); //takes the data from the message but in hex
       Serial.println(nDTChx);
-      int nDTCdc= strtol(nDTChx.c_str(), NULL, 16); //converts the engLoad to decimal
+      int nDTCdc= strtol(nDTChx.c_str(), NULL, 16); //converts to decimal
       Serial.println(nDTCdc);
-      nDTCdc=nDTCdc-128;
-      String nDTC = String(nDTCdc); //converting airTemp to String
+      //nDTCdc=nDTCdc-128;
+      String nDTC = String(nDTCdc); //converting to String
       Serial.println(nDTC); //actual engLoad value 
       client.publish("nDTC", nDTC.c_str());
       if (nDTCdc>0){
@@ -232,50 +237,101 @@ void loop()
         DTC.remove(0,2);
         Serial.print("DTC:"); Serial.println(DTC);
         client.publish("DTC",DTC.c_str());    
+      } else{
+        DTC= "0";
+        client.publish("DTC",DTC.C_STR());
       }
     }
     
     SerialHC.flush(); //waits for the transmit buffer to be empty / the transmission to be finished
   }
-   
-  if (Serial.available()) {    // Keep reading from Arduino Serial Monitor and send to HC-05
-    //Serial.println("serial available");
-    char c=Serial.read();
-    Serial.println(c);
-    SerialHC.write(c);
-  }
+  //delay(1000); 
+//  String r="010C";
+//  SerialHC.println(r);
+//  delay(1000);
+//  if (Serial.available()) {    // Keep reading from Arduino Serial Monitor and send to HC-05
+//    //Serial.println("serial available");
+//    char c=Serial.read();
+//    Serial.println(c);
+//    SerialHC.write(c);
+//  }
   //Send the command prompts to get data
-  if (nloop==0){
-    SerialHC.write("010C");
-    nloop ++;
+  Serial.print("nloop:"); Serial.println(nloop);
+  switch (nloop) {
+    case 0:
+     // Serial.print("nloopCase:"); Serial.println(nloop);
+     c="010C";
+     SerialHC.println(c);
+      delay(1000);
+      //readHC();
+     // nloop='1';
+      
+      break;
+    case 1:
+      c="0105";
+      SerialHC.println(c);
+      //SerialHC.write("0105");
+      delay(1000);
+//      nloop='2';
+      //readHC();
+      break;
+    case 2:
+      c="010D";
+      SerialHC.println(c);
+      //SerialHC.write("010D");
+      delay(1000);
+//      nloop='3';
+      //readHC();
+      break;
+    case 3:
+      c="0110";
+      SerialHC.println(c);
+      //SerialHC.write("0110");
+      delay(1000);
+//      nloop='4';
+      //readHC();
+      break;
+    case 4:
+      c="010F";
+      SerialHC.println(c);
+      delay(1000);
+//      nloop= '5';
+      readHC();
+      break;
+    case 5:
+      c="0104";
+      SerialHC.println(c);
+      //SerialHC.write("0104");
+      delay(1000);
+//      nloop='6';
+      //readHC();
+      break;
+    case 6:
+      c="0101";
+      SerialHC.println(c);
+      //SerialHC.write("0101");
+      delay(1000);
+//      nloop='0';
+      //readHC();
+      break;
+    case 7:
+      c="0100";
+      SerialHC.println(c);
+      //SerialHC.write("0100");
+      delay(1000);
+      //readHC();
+      break;
+    default:
+      Serial.println("For some reason damned switch is not working");
   }
-  if (nloop==1){
-    SerialHC.write("0105");
-    nloop ++;
-  }
-  if (nloop==2){
-    SerialHC.write("010D");
-    nloop ++;
-  }
-  if (nloop==3){
-    SerialHC.write("0110");
-    nloop ++;
-  }
-  if (nloop==4){
-    SerialHC.write("010F");
-    nloop ++;
-  }
-  if (nloop==5){
-    SerialHC.write("0104");
-    nloop ++;
-  }
-  if (nloop==6){
-    SerialHC.write("0101");
+  //increment the number of loops
+  nloop ++;
+  //reset nloop when it reaches 7
+  if (nloop >= 7){
     nloop=0;
-  }
-
-    
+  }    
 }
+
 
 //The void callback is called every time we have a message from the broker
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -283,4 +339,5 @@ void callback(char* topic, byte* payload, unsigned int length) {
   for (int i = 0; i < length; i++) incommingMessage+=(char)payload[i];
   
   Serial.println("Message arrived ["+String(topic)+"]"+incommingMessage);
-  }
+}
+  
